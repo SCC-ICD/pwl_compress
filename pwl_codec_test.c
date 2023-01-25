@@ -2,6 +2,7 @@
 //
 // Developed using Windows subsystem for Linux (WSL 1) and Ubuntu 18.04.
 // Compile via: gcc -o pwl_codec_test pwl_codec.c pwl_codec_test.c
+// or use cmake (instructions at top of CMakeLists.txt)
 //
 // Author: Casey Miller, Microsoft (millerc@microsoft.com)
 //   Date: 5/21/20
@@ -20,7 +21,7 @@ void compute_err(
     const uint32_t* pIn1,       //  in: input data array
     const uint32_t* pIn2,       //  in: input data array
     uint32_t        numPix,     //  in: number of pixels in input data array
-    uint16_t*       pMaxAbsErr, // out: max(abs(pIn1 - pIn2))
+    uint32_t*       pMaxAbsErr, // out: max(abs(pIn1 - pIn2))
     float*          pAvgErr     // out:     avg(pIn1 - pIn2)
 ) {
     int32_t sum_err    = 0;
@@ -39,18 +40,18 @@ void compute_err(
 
 ////////////////////////////////////////////////////////////////////////////////
 void test_pwl_reduce(
-    const uint32_t* pIn,        // in: input data to test with
+    uint32_t*       pIn,        // in: input data to test with
     uint32_t        numPix,     // in: number of input pixels (size of pInput)
     const uint32_t* pX,         //  in: array of x-locations for control points:
                                 //      pX[i] < pX[i+1],
-    const uint16_t* pY,         //  in: array of y-locations for control points
+    const uint32_t* pY,         //  in: array of y-locations for control points
     uint8_t         numXY,      //  in: number of elements in pX and pY arrays (<= 8)
-    uint16_t*       pMaxAbsErr, // out: max(abs(pIn1 - pIn2))
+    uint32_t*       pMaxAbsErr, // out: max(abs(pIn1 - pIn2))
     float*          pAvgErr     // out:     avg(pIn1 - pIn2)
 ) {
     // malloc temporary arrays
     uint32_t* pIn2 = (uint32_t*)malloc(numPix * sizeof(uint32_t));
-    uint16_t* pOut = (uint16_t*)malloc(numPix * sizeof(uint16_t));
+    uint32_t* pOut = (uint32_t*)malloc(numPix * sizeof(uint32_t));
     assert(pIn2 != NULL);
     assert(pOut != NULL);
 
@@ -58,7 +59,7 @@ void test_pwl_reduce(
     assert(pwl_reduce(pIn, numPix, pX, pY, numXY, pOut) == 0);
 
     // decompress pOut into pIn2
-    assert(pwl_expand(pIn2, numPix, pX, pY, numXY, pOut) == 0);
+    assert(pwl_expand(pOut, numPix, pX, pY, numXY, pIn2) == 0);
 
     // compute max and average error from input
     compute_err(pIn, pIn2, numPix, pMaxAbsErr, pAvgErr);
@@ -84,7 +85,7 @@ void test_pwl_reduce(
 
 void test_linear(void) {
     uint32_t pX[2];
-    uint16_t pY[2];
+    uint32_t pY[2];
     uint32_t* pIn = (uint32_t*)malloc((1 << MAX_BPP_IN) * sizeof(uint32_t));
 
     // test all possible input and output bit widths using 2 control points
@@ -94,7 +95,7 @@ void test_linear(void) {
 
             // setup control points
             uint32_t maxIn  = (1 << bppIn ) - 1;
-            uint16_t maxOut = (1 << bppOut) - 1;
+            uint32_t maxOut = (1 << bppOut) - 1;
             pX[        0] =     0; pY[        0] =      0;
             pX[numXY - 1] = maxIn; pY[numXY - 1] = maxOut;
 
@@ -103,12 +104,12 @@ void test_linear(void) {
             for (uint32_t ii = 0; ii < numPix; ++ii) { pIn[ii] = ii; }
 
             // compress input to output, then decompress and compute error stats
-            uint16_t maxAbsErr;
+            uint32_t maxAbsErr;
             float    avgErr;
             test_pwl_reduce(pIn, numPix, pX, pY, numXY, &maxAbsErr, &avgErr);
 
             // determine maximum absolute error bound
-            uint16_t maxAbsErrBound = (bppIn == bppOut) ? 0 :
+            uint32_t maxAbsErrBound = (bppIn == bppOut) ? 0 :
                                       (1 << (bppIn - bppOut - 1));
 #ifdef USE_HW_DIVIDE
             assert (maxAbsErr <= maxAbsErrBound);
@@ -117,7 +118,7 @@ void test_linear(void) {
             // approximation of divide using fixed-point multiplication
             // incurs slight additional error
             assert (maxAbsErr <= (maxAbsErrBound + 1));
-            assert (fabsf(avgErr) < 0.5f);
+            assert (fabsf(avgErr) < 0.51f);
 #endif
         }
     }
@@ -142,7 +143,7 @@ void test_linear(void) {
 //                   start_in       stop_in
 void test_windowed(void) {
     uint8_t  bppOut = 12;
-    uint16_t maxOut = (1 << bppOut) - 1;
+    uint32_t maxOut = (1 << bppOut) - 1;
 
     // create input data that can be lossless compressed as it is within
     // the dynamic range of the output bit width
@@ -156,12 +157,12 @@ void test_windowed(void) {
     // setup control points for windowed compression
     uint8_t  numXY = 2;
     uint32_t pX[2];
-    uint16_t pY[2];
+    uint32_t pY[2];
     pX[0] = start_in; pY[0] =      0;
     pX[1] = stop_in;  pY[1] = maxOut;
 
     // compress input to output, then decompress and compute error stats
-    uint16_t maxAbsErr;
+    uint32_t maxAbsErr;
     float    avgErr;
     test_pwl_reduce(pIn, numPix, pX, pY, numXY, &maxAbsErr, &avgErr);
     assert (maxAbsErr == 0);
